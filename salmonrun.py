@@ -9,6 +9,21 @@ cookie = ""
 api_key = ""
 app_head = {}
 
+def boss_kills(killed):
+    boss_map = {
+            "goldie":    3,
+            "steelhead": 6,
+            "flyfish":   9,
+            "scrapper":  12,
+            "steel_eel": 13,
+            "stinger":   14,
+            "maws":      15,
+            "griller":   16,
+            "drizzler":  21
+            }
+    return {key:killed(value) for key, value in boss_map.items()}
+
+
 def salmon_load_json():
 	'''Returns Salmon Run summary JSON from online.'''
 
@@ -51,45 +66,36 @@ def set_teammates(payload, job_id):
 		print("Problem retrieving shift details. Continuing without teammates' scoreboard statistics.")
 		return payload # same payload as passed in, no modifications
 
-	payload["teammates"] = []
-	num_teammates = len(results["other_results"])
 	translate_specials = {2: 'pitcher', 7: 'presser', 8: 'jetpack', 9: 'chakuchi'}
-	for num in range(num_teammates):
-		payload["teammates"].append({})
+        payload["teammates"]=[ {
+            # Principal ID & nickname
+            "splatnet_id":              result["pid"],
+            "name":                     result["name"],
 
-		# Principal ID & nickname
-		payload["teammates"][num]["splatnet_id"] = results["other_results"][num]["pid"]
-		payload["teammates"][num]["name"]        = results["other_results"][num]["name"]
+            # Special weapon
+            "special":                  translate_specials[int(result["special"]["id"])],
 
-		# Special weapon
-		payload["teammates"][num]["special"] = translate_specials[int(results["other_results"][num]["special"]["id"])]
+            # Rescues, deaths, egg stats
+            "rescue":                   result["help_count"],
+            "death":                    result["dead_count"],
+            "golden_egg_delivered":     result["golden_ikura"],
+            "power_egg_collected":      result["ikura_num"],
 
-		# Rescues, deaths, egg stats
-		payload["teammates"][num]["rescue"]               = results["other_results"][num]["help_count"]
-		payload["teammates"][num]["death"]                = results["other_results"][num]["dead_count"]
-		payload["teammates"][num]["golden_egg_delivered"] = results["other_results"][num]["golden_ikura_num"]
-		payload["teammates"][num]["power_egg_collected"]  = results["other_results"][num]["ikura_num"]
+            # Special uses, main weapon
+            "special_uses":             result["special_counts"],
+            "weapons":                  [dbs.weapons.get(int(d["id"]),None) for d in result["weapon_list"]],
 
-		# Special uses, main weapon
-		weapon_list = results["other_results"][num]["weapon_list"]
-		payload["teammates"][num]["special_uses"] = results["other_results"][num]["special_counts"] # list
-		payload["teammates"][num]["weapons"]      = [dbs.weapons.get(int(d["id"]), None) for d in weapon_list]
-
-		# Boss kills
-		boss_kills = {}
-		boss_kills["goldie"]    = results["other_results"][num]["boss_kill_counts"]["3"]["count"]
-		boss_kills["steelhead"] = results["other_results"][num]["boss_kill_counts"]["6"]["count"]
-		boss_kills["flyfish"]   = results["other_results"][num]["boss_kill_counts"]["9"]["count"]
-		boss_kills["scrapper"]  = results["other_results"][num]["boss_kill_counts"]["12"]["count"]
-		boss_kills["steel_eel"] = results["other_results"][num]["boss_kill_counts"]["13"]["count"]
-		boss_kills["stinger"]   = results["other_results"][num]["boss_kill_counts"]["14"]["count"]
-		boss_kills["maws"]      = results["other_results"][num]["boss_kill_counts"]["15"]["count"]
-		boss_kills["griller"]   = results["other_results"][num]["boss_kill_counts"]["16"]["count"]
-		boss_kills["drizzler"]  = results["other_results"][num]["boss_kill_counts"]["21"]["count"]
-		payload["teammates"][num]["boss_kills"] = boss_kills
+            # Boss kills
+            "boss_kills":               boss_kills(lambda value: result["boss_kill_counts"][str(value)]["count"])
+            } for result in results["other_results"]]
 
 	return payload # return modified payload w/ teammates key
 
+def stat_ink_UUID(job_id, principal_id):
+        namespace = uuid.UUID(u'{418fe150-cb33-11e8-8816-d050998473ba}')
+        name = "{}@{}".format()
+        return str(uuid.uuid5(namespace, name))
+ 
 def salmon_post_shift(i, results):
 	'''Uploads shift #i from the provided results dictionary.'''
 
@@ -103,9 +109,7 @@ def salmon_post_shift(i, results):
 
 	# stat.ink UUID
 	principal_id = results[i]["my_result"]["pid"]
-	namespace = uuid.UUID(u'{418fe150-cb33-11e8-8816-d050998473ba}')
-	name = "{}@{}".format(job_id, principal_id)
-	payload["uuid"] = str(uuid.uuid5(namespace, name))
+	payload["uuid"] = stat_ink_UUID(job_id, principal_id)
 
 	# Title
 	title_num = int(results[i]["grade"]["id"])
@@ -144,17 +148,7 @@ def salmon_post_shift(i, results):
 	payload["danger_rate"] = results[i]["danger_rate"]
 
 	# Boss appearances/count
-	num_of_bosses = {}
-	num_of_bosses["goldie"]    = results[i]["boss_counts"]["3"]["count"]
-	num_of_bosses["steelhead"] = results[i]["boss_counts"]["6"]["count"]
-	num_of_bosses["flyfish"]   = results[i]["boss_counts"]["9"]["count"]
-	num_of_bosses["scrapper"]  = results[i]["boss_counts"]["12"]["count"]
-	num_of_bosses["steel_eel"] = results[i]["boss_counts"]["13"]["count"]
-	num_of_bosses["stinger"]   = results[i]["boss_counts"]["14"]["count"]
-	num_of_bosses["maws"]      = results[i]["boss_counts"]["15"]["count"]
-	num_of_bosses["griller"]   = results[i]["boss_counts"]["16"]["count"]
-	num_of_bosses["drizzler"]  = results[i]["boss_counts"]["21"]["count"]
-	payload["boss_appearances"] = num_of_bosses
+        payload["boss_appearances"] = boss_kill(lambda value:results[i]["boss_counts"][str(value)][count])
 
 	# Number of waves played
 	num_waves = len(results[i]["wave_details"])
@@ -217,17 +211,7 @@ def salmon_post_shift(i, results):
 	payload["my_data"]["weapons"]      = [dbs.weapons.get(int(d["id"]), None) for d in weapon_list]
 
 	# Boss kills
-	boss_kills = {}
-	boss_kills["goldie"]    = results[i]["my_result"]["boss_kill_counts"]["3"]["count"]
-	boss_kills["steelhead"] = results[i]["my_result"]["boss_kill_counts"]["6"]["count"]
-	boss_kills["flyfish"]   = results[i]["my_result"]["boss_kill_counts"]["9"]["count"]
-	boss_kills["scrapper"]  = results[i]["my_result"]["boss_kill_counts"]["12"]["count"]
-	boss_kills["steel_eel"] = results[i]["my_result"]["boss_kill_counts"]["13"]["count"]
-	boss_kills["stinger"]   = results[i]["my_result"]["boss_kill_counts"]["14"]["count"]
-	boss_kills["maws"]      = results[i]["my_result"]["boss_kill_counts"]["15"]["count"]
-	boss_kills["griller"]   = results[i]["my_result"]["boss_kill_counts"]["16"]["count"]
-	boss_kills["drizzler"]  = results[i]["my_result"]["boss_kill_counts"]["21"]["count"]
-	payload["my_data"]["boss_kills"] = boss_kills
+        payload["my_data"]["boss_kills"] = boss_kills(lambda value:results[i]["my_result"]["boss_kill_counts"][str(value)]["count"])
 
 	#########################
 	# TEAMMATES LIST & DATA #
